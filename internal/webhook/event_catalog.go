@@ -10,35 +10,49 @@ import (
 	"github.com/fluxa/fluxa/internal/domain"
 )
 
+// EventCatalogEntry is one event as presented by GET /events. The wire shape is
+// part of the public contract and is asserted by the event catalogue tests, so
+// it is declared separately from the domain table it is rendered from.
 type EventCatalogEntry struct {
 	Name        string          `json:"name"`
 	Description string          `json:"description"`
 	Example     json.RawMessage `json:"example"`
 }
 
-var eventCatalog = []EventCatalogEntry{
-	{domain.EventTransferSettled, "A transfer has been confirmed on Stellar.", json.RawMessage(`{"id":"txn_123","status":"confirmed","amount":"25.00","asset":"USDC","stellar_tx_hash":"abc123"}`)},
-	{domain.EventTransferFailed, "A transfer failed before settlement completed.", json.RawMessage(`{"id":"txn_123","status":"failed","amount":"25.00","asset":"USDC","failure_reason":"insufficient_balance"}`)},
-	{domain.EventWalletFunded, "A wallet received funds.", json.RawMessage(`{"wallet_id":"wal_123","asset":"USDC","amount":"25.00","transaction_hash":"abc123"}`)},
-	{"payment.completed", "A payment completed successfully.", json.RawMessage(`{"payment_id":"pay_123","status":"completed","amount":"25.00","currency":"USDC"}`)},
-	{"payment.failed", "A payment could not be completed.", json.RawMessage(`{"payment_id":"pay_123","status":"failed","failure_reason":"declined"}`)},
-	{"fx.quote.created", "A foreign-exchange quote was created.", json.RawMessage(`{"quote_id":"quo_123","base_asset":"USDC","quote_asset":"NGN","rate":"1500.00"}`)},
-	{"settlement.completed", "A settlement completed.", json.RawMessage(`{"settlement_id":"set_123","status":"completed","transaction_hash":"abc123"}`)},
-	{"batch.completed", "All transfers in a batch have finished processing.", json.RawMessage(`{"batch_id":"bat_123","status":"completed","total":3,"succeeded":3,"failed":0}`)},
-	{domain.EventAPIKeyRotationReminder, "An API key is approaching its configured expiry.", json.RawMessage(`{"key_id":"key_123","expires_at":"2030-01-01T00:00:00Z"}`)},
-	{domain.EventAPIKeyExpired, "An API key has expired.", json.RawMessage(`{"key_id":"key_123","expired_at":"2030-01-01T00:00:00Z"}`)},
+// catalogEntries renders the domain event contract into wire entries. It runs
+// on every request and the source table is small, so the copy is cheap; it
+// exists to keep handlers from handing out a mutable view of package state.
+func catalogEntries() []EventCatalogEntry {
+	source := domain.WebhookEvents
+	entries := make([]EventCatalogEntry, 0, len(source))
+	for _, event := range source {
+		entries = append(entries, EventCatalogEntry{
+			Name:        event.Name,
+			Description: event.Description,
+			Example:     json.RawMessage(event.Example),
+		})
+	}
+	return entries
 }
 
 // ListEventCatalog returns the event contract catalogue. Search is performed
 // over the event name and description, never over example payload values.
+//
+// Entries come from domain.WebhookEvents, so an event is advertised here exactly
+// when RegisterEndpoint will accept it. This handler used to iterate its own
+// hand-maintained slice, which drifted from SupportedEventTypes and advertised
+// events the API rejected.
 func (h *Handler) ListEventCatalog(w http.ResponseWriter, r *http.Request) {
 	query := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("q")))
-	entries := make([]EventCatalogEntry, 0, len(eventCatalog))
-	for _, entry := range eventCatalog {
-		if query == "" || strings.Contains(strings.ToLower(entry.Name), query) || strings.Contains(strings.ToLower(entry.Description), query) {
-			entries = append(entries, entry)
+	entries := catalogEntries()
+	filtered := make([]EventCatalogEntry, 0, len(entries))
+	for _, entry := range entries {
+		if query == "" ||
+			strings.Contains(strings.ToLower(entry.Name), query) ||
+			strings.Contains(strings.ToLower(entry.Description), query) {
+			filtered = append(filtered, entry)
 		}
 	}
-	sort.Slice(entries, func(i, j int) bool { return entries[i].Name < entries[j].Name })
-	api.JSON(w, http.StatusOK, map[string]interface{}{"events": entries})
+	sort.Slice(filtered, func(i, j int) bool { return filtered[i].Name < filtered[j].Name })
+	api.JSON(w, http.StatusOK, map[string]interface{}{"events": filtered})
 }
