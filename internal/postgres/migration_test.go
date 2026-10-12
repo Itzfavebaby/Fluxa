@@ -59,8 +59,14 @@ func startPostgres(t *testing.T) string {
 
 	dbURL := fmt.Sprintf("postgres://postgres:fluxa@localhost:%s/postgres?sslmode=disable", port)
 
+	// The published port accepts TCP as soon as docker's userland proxy binds
+	// it, which is well before postgres inside the container finishes initdb
+	// and starts listening. Until then the proxy resets every connection, so a
+	// short retry budget turns a slow image pull or a loaded machine into a
+	// spurious failure. 60 half-second attempts give the server a full 30s to
+	// come up while still failing fast when docker itself is broken.
 	var ready bool
-	for i := 0; i < 20; i++ {
+	for i := 0; i < 60; i++ {
 		conn, err := pgx.Connect(context.Background(), dbURL)
 		if err == nil {
 			conn.Close(context.Background())
@@ -194,6 +200,14 @@ func TestMigrations(t *testing.T) {
 	}
 }
 
+// TestWebhookDeliveryStatusEnum checks that the enum accepts exactly the
+// statuses the delivery path writes, and rejects the ones it does not.
+//
+// It previously asserted "dead_lettered" as well, which the enum has never
+// accepted: a delivery that exhausts its retries is copied into the separate
+// webhook_dead_letters table (migration 000031) rather than being marked with a
+// status, and domain has no DeliveryDeadLettered constant. The assertion was
+// simply wrong about where dead-lettering is recorded.
 func TestWebhookDeliveryStatusEnum(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping migration test in short mode")
@@ -210,13 +224,33 @@ func TestWebhookDeliveryStatusEnum(t *testing.T) {
 	}
 	defer conn.Close(context.Background())
 
-	for _, status := range []string{"pending", "success", "failed", "dead_lettered"} {
+	// webhook_deliveries.endpoint_id references webhook_endpoints, so a real
+	// endpoint has to exist before any delivery can be inserted.
+	endpointID := uuid.NewString()
+	if _, err := conn.Exec(context.Background(),
+		`INSERT INTO webhook_endpoints (id, url, secret, events) VALUES ($1, $2, 'whsec_test', '{}')`,
+		endpointID, "https://example.com/hook"); err != nil {
+		t.Fatalf("insert endpoint: %v", err)
+	}
+
+	for _, status := range []string{"pending", "success", "failed"} {
 		_, err := conn.Exec(context.Background(),
-			"INSERT INTO webhook_deliveries (endpoint_id, event_type, payload, status) VALUES ($1, 'test', '{}', $2)",
-			uuid.NewString(), status)
+			"INSERT INTO webhook_deliveries (endpoint_id, event_type, payload, status) VALUES ($1, 'test', '{}'::jsonb, $2)",
+			endpointID, status)
 		if err != nil {
 			t.Errorf("webhook_delivery_status enum should accept %q: %v", status, err)
 		}
+	}
+
+	// Dead-lettering is a row in webhook_dead_letters, not a delivery status.
+	// Guard the distinction so the enum is not silently widened to match the
+	// old, incorrect expectation.
+	_, err = conn.Exec(context.Background(),
+		"INSERT INTO webhook_deliveries (endpoint_id, event_type, payload, status) VALUES ($1, 'test', '{}'::jsonb, 'dead_lettered')",
+		endpointID)
+	if err == nil {
+		t.Error("webhook_delivery_status enum unexpectedly accepted \"dead_lettered\"; " +
+			"a dead-lettered delivery belongs in webhook_dead_letters")
 	}
 }
 

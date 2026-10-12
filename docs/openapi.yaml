@@ -1675,8 +1675,16 @@ paths:
       - name: Idempotency-Key
         in: header
         required: true
+        description: 'Client-generated key that makes this operation safe to retry.
+
+          UUID v4 is the documented form; any other value is accepted and
+
+          normalised to a deterministic UUID v4 via SHA-256 of the raw string.
+
+          '
         schema:
           type: string
+          format: uuid
       requestBody:
         required: false
         content:
@@ -2784,6 +2792,20 @@ components:
               message: missing or invalid authorization header
               status: 401
               request_id: req-example
+    InsufficientScope:
+      description: Forbidden — the API key does not carry the required scope, or the
+        user's role is not permitted. Emitted by RequireScope and RequireRole in
+        internal/server/middleware.go.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: INSUFFICIENT_SCOPE
+              message: 'API key does not have the required scope: wallets:write'
+              status: 403
+              request_id: req-example
     NotFound:
       description: Resource not found
       content:
@@ -2998,6 +3020,7 @@ components:
               - CROSS_MODE_KEY_OPERATION
               - ENVIRONMENT_REQUIRED
               - IDEMPOTENCY_KEY_REQUIRED
+              - IDEMPOTENCY_KEY_REUSED_WITH_DIFFERENT_BODY
               - IDEMPOTENCY_RECORD_PERSISTENCE_FAILED
               - IDEMPOTENCY_RESPONSE_TOO_LARGE
               - INSUFFICIENT_SCOPE
@@ -3021,7 +3044,6 @@ components:
               - NOT_FOUND
               - UNAUTHORIZED
               - FORBIDDEN
-              - INSUFFICIENT_SCOPE
               - INTERNAL_ERROR
               - INSUFFICIENT_SWEEPABLE_BALANCE
               - QUOTE_EXPIRED
