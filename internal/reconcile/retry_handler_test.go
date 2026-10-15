@@ -10,7 +10,7 @@ import (
 
 func TestForceSettleRejectsInvalidTransferID(t *testing.T) {
 	r := chi.NewRouter()
-	r.Route("/v1/admin", NewHandler(nil).AdminRoutes())
+	r.Route("/v1/admin", NewHandler(nil).AdminRoutes(nil))
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/v1/admin/transfers/not-a-uuid/force-settle", nil)
 	r.ServeHTTP(rec, req)

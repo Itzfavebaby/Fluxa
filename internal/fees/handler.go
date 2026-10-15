@@ -111,9 +111,26 @@ func (h *Handler) putSchedule(w http.ResponseWriter, r *http.Request) {
 		asset = "*"
 	}
 
+	// The schedule a caller may modify is derived from their identity, never
+	// from the request body: platform operators may change the global schedule
+	// (no tenant_id) or any tenant's, while a tenant admin can only change
+	// their own tenant's schedule (#382).
+	ctxTenantID := tenant.IDFromContext(r.Context())
 	var tenantID *string
-	if req.TenantID != "" {
-		tenantID = &req.TenantID
+	if tenant.IsPlatformTenant(ctxTenantID) {
+		if req.TenantID != "" {
+			tenantID = &req.TenantID
+		}
+	} else {
+		if req.TenantID != "" && req.TenantID != ctxTenantID {
+			api.Error(w, http.StatusForbidden, "FORBIDDEN", "cannot modify another tenant's fee schedule")
+			return
+		}
+		if ctxTenantID == "" {
+			api.Error(w, http.StatusUnauthorized, "TENANT_REQUIRED", "tenant context is required")
+			return
+		}
+		tenantID = &ctxTenantID
 	}
 
 	schedule := &domain.FeeSchedule{

@@ -33,16 +33,29 @@ func (h *Handler) WithAuditLogger(audit interface {
 	return h
 }
 
-func (h *Handler) AdminRoutes() func(r chi.Router) {
+// AdminRoutes mounts the reconciliation admin endpoints. summary and drift
+// report platform-wide numbers and run triggers a platform-wide reconciliation
+// pass for every tenant, so the server passes RequirePlatformOperator as
+// platformGuard for those three (#385); the discrepancy workflow and the
+// per-resource actions stay reachable by tenant Owner/Admin and scope themselves
+// to the caller's tenant via context.
+func (h *Handler) AdminRoutes(platformGuard func(http.Handler) http.Handler) func(r chi.Router) {
 	return func(r chi.Router) {
-		r.Get("/reconciliation/summary", h.summary)
-		r.Get("/reconciliation/drift", h.drift)
 		r.Get("/reconciliation/discrepancies", h.discrepancies)
 		r.Get("/reconciliation/discrepancies/summary", h.discrepancySummary)
 		r.Patch("/reconciliation/discrepancies/{id}", h.updateDiscrepancy)
-		r.Post("/reconciliation/run", h.run)
 		r.Post("/transfers/{transferID}/force-settle", h.forceSettle)
 		r.Post("/reconcile/wallet/{walletID}/run", h.runReconcile)
+
+		summary, drift, run := r.Get, r.Get, r.Post
+		if platformGuard != nil {
+			summary = r.With(platformGuard).Get
+			drift = r.With(platformGuard).Get
+			run = r.With(platformGuard).Post
+		}
+		summary("/reconciliation/summary", h.summary)
+		drift("/reconciliation/drift", h.drift)
+		run("/reconciliation/run", h.run)
 	}
 }
 

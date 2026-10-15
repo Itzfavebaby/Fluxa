@@ -15,7 +15,7 @@ import (
 // over real HTTP.
 func newDriftTestRouter(svc *Service) http.Handler {
 	r := chi.NewRouter()
-	r.Route("/v1/admin", NewHandler(svc).AdminRoutes())
+	r.Route("/v1/admin", NewHandler(svc).AdminRoutes(nil))
 	return r
 }
 

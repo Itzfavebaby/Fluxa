@@ -30,10 +30,19 @@ func (h *Handler) RegisterRoutes(r chi.Router) {
 }
 
 // RegisterAdminRoutes must be mounted inside the authenticated Owner/Admin
-// group and therefore produces /v1/admin/incidents.
-func (h *Handler) RegisterAdminRoutes(r chi.Router) {
-	r.Post("/admin/incidents", h.CreateIncident)
-	r.Patch("/admin/incidents/{id}", h.UpdateIncident)
+// group and therefore produces /v1/admin/incidents. Incident create/update is
+// platform-wide — incidents surface on the public /status endpoints every
+// tenant and anonymous visitor sees — so the server passes
+// RequirePlatformOperator as the guard and a normal tenant owner is refused
+// with 403 (#383).
+func (h *Handler) RegisterAdminRoutes(r chi.Router, guard func(http.Handler) http.Handler) {
+	post, patch := r.Post, r.Patch
+	if guard != nil {
+		post = r.With(guard).Post
+		patch = r.With(guard).Patch
+	}
+	post("/admin/incidents", h.CreateIncident)
+	patch("/admin/incidents/{id}", h.UpdateIncident)
 }
 
 func (h *Handler) GetStatus(w http.ResponseWriter, r *http.Request) {

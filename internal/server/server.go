@@ -282,12 +282,20 @@ func New(
 			// Administrative routes (Owner & Admin only)
 			r.Group(func(r chi.Router) {
 				r.Use(RequireRole(domain.RoleOwner, domain.RoleAdmin))
+				// Fee schedule writes are scoped to the caller's tenant inside
+				// the handler; only a platform operator may alter the global
+				// schedule or another tenant's (#382).
 				r.Route("/admin/fees", feeHandler.AdminRoutes())
-				r.Route("/admin/anchors", anchorHandler.AdminRoutes())
-				r.Route("/admin", reconcileHandler.AdminRoutes())
+				// Anchor registration (#384), reconciliation
+				// summary/drift/run (#385) and incident mutations (#383)
+				// operate on platform-wide state, so they additionally require
+				// a platform operator. The tenant-scoped routes in the same
+				// packages stay available to tenant Owner/Admin.
+				r.Route("/admin/anchors", anchorHandler.AdminRoutes(RequirePlatformOperator()))
+				r.Route("/admin", reconcileHandler.AdminRoutes(RequirePlatformOperator()))
 				r.With(RequirePlatformOperator()).Route("/admin/treasury", treasuryHandler.AdminRoutes())
 				if statusHandler != nil {
-					statusHandler.RegisterAdminRoutes(r)
+					statusHandler.RegisterAdminRoutes(r, RequirePlatformOperator())
 				}
 				// Mounted at /admin/compliance, not /admin
 				if complianceHandler != nil {
