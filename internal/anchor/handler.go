@@ -21,10 +21,18 @@ func NewHandler(registry *Registry) *Handler {
 
 // AdminRoutes mounts anchor registration/listing under whatever prefix the
 // caller mounts it at (e.g. "/admin/anchors"), so both land on
-// POST/GET /v1/admin/anchors.
-func (h *Handler) AdminRoutes() func(r chi.Router) {
+// POST/GET /v1/admin/anchors. Registration is a platform-wide mutation — the
+// anchors table has no tenant_id, so a registered anchor (home domain,
+// transfer server, SEP-10 signing key) is visible to and usable by every
+// tenant — and therefore takes the caller's guard (RequirePlatformOperator)
+// so only a platform operator can register one (#384).
+func (h *Handler) AdminRoutes(guard func(http.Handler) http.Handler) func(r chi.Router) {
 	return func(r chi.Router) {
-		r.Post("/", h.register)
+		post := r.Post
+		if guard != nil {
+			post = r.With(guard).Post
+		}
+		post("/", h.register)
 		r.Get("/", h.list)
 	}
 }

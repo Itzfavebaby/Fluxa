@@ -87,7 +87,13 @@ func statusTestServer(t *testing.T, repo status.Repository) *Server {
 		&domain.OrgMember{TenantID: "tenant-1", UserID: "user-1", Role: domain.RoleOwner},
 		&domain.OrgMember{TenantID: "tenant-1", UserID: "user-2", Role: domain.RoleViewer},
 		&domain.OrgMember{TenantID: "tenant-1", UserID: "user-3", Role: domain.RoleDeveloper},
+		&domain.OrgMember{TenantID: "platform", UserID: "user-9", Role: domain.RoleAdmin},
 	), status.NewHandler(status.NewService(repo)))
+}
+
+func platformOperatorToken(t *testing.T) string {
+	t.Helper()
+	return mustTokenForUser(t, "user-9", "platform", domain.RoleAdmin)
 }
 
 func requestJSON(t *testing.T, srv *Server, method, path, token, body string) *httptest.ResponseRecorder {
@@ -131,10 +137,36 @@ func TestStatusIncidentMutationsRequireOwnerOrAdmin(t *testing.T) {
 	}
 }
 
+// TestStatusIncidentMutationsRequirePlatformOperator pins the #383 fix: a
+// normal tenant owner/admin must not be able to publish a platform-wide
+// incident, because incidents surface on the public /status endpoints.
+func TestStatusIncidentMutationsRequirePlatformOperator(t *testing.T) {
+	repo := newStatusMemoryRepository()
+	srv := statusTestServer(t, repo)
+	createBody := `{"title":"Fake outage","description":"Not real","severity":"critical"}`
+
+	owner := mustTokenForUser(t, "user-1", "tenant-1", domain.RoleOwner)
+	rec := requestJSON(t, srv, http.MethodPost, "/v1/admin/incidents", owner, createBody)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("tenant owner create status = %d, want 403, body=%s", rec.Code, rec.Body.String())
+	}
+
+	if len(repo.items) != 0 {
+		t.Fatalf("denied mutation persisted %d incidents", len(repo.items))
+	}
+
+	// The platform operator is still allowed through.
+	platform := platformOperatorToken(t)
+	rec = requestJSON(t, srv, http.MethodPost, "/v1/admin/incidents", platform, createBody)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("platform operator create status = %d, want 201, body=%s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestStatusIncidentPersistenceAndLifecycle(t *testing.T) {
 	repo := newStatusMemoryRepository()
 	srv := statusTestServer(t, repo)
-	owner := mustToken(t, domain.RoleOwner)
+	owner := platformOperatorToken(t)
 	create := requestJSON(t, srv, http.MethodPost, "/v1/admin/incidents", owner, `{"title":"API latency","description":"Investigating","severity":"major"}`)
 	if create.Code != http.StatusCreated {
 		t.Fatalf("create = %d, body=%s", create.Code, create.Body.String())

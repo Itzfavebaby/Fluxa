@@ -181,9 +181,10 @@ func TestAdminRoutesRequireOwnerOrAdmin(t *testing.T) {
 	}{
 		{http.MethodGet, "/v1/admin/fees/collected", false},
 		{http.MethodGet, "/v1/admin/anchors", false},
-		{http.MethodPost, "/v1/admin/anchors", false},
-		{http.MethodGet, "/v1/admin/reconciliation/summary", false},
-		{http.MethodPost, "/v1/admin/reconciliation/run", false},
+		{http.MethodPost, "/v1/admin/anchors", true},
+		{http.MethodGet, "/v1/admin/reconciliation/summary", true},
+		{http.MethodGet, "/v1/admin/reconciliation/drift", true},
+		{http.MethodPost, "/v1/admin/reconciliation/run", true},
 		{http.MethodGet, "/v1/admin/treasury/balances", true},
 		{http.MethodPost, "/v1/admin/treasury/sweep", true},
 		{http.MethodPut, "/v1/admin/treasury/config", true},
@@ -224,6 +225,36 @@ func TestAdminRoutesRequireOwnerOrAdmin(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// TestPlatformOperatorAccessesPlatformAdminRoutes verifies the flip side of the
+// platform-operator gate: a caller whose tenant is a platform identity is
+// admitted to the platform-wide admin routes, while every normal tenant is
+// refused (covered by TestAdminRoutesRequireOwnerOrAdmin).
+func TestPlatformOperatorAccessesPlatformAdminRoutes(t *testing.T) {
+	validator := newMockMembershipValidator(
+		&domain.OrgMember{TenantID: "platform", UserID: "user-1", Role: domain.RoleAdmin},
+	)
+	srv := newAuthzTestServerWithValidator(t, validator)
+	tok := mustTokenForUser(t, "user-1", "platform", domain.RoleAdmin)
+
+	for _, rt := range []struct {
+		method string
+		path   string
+	}{
+		{http.MethodGet, "/v1/admin/reconciliation/summary"},
+		{http.MethodGet, "/v1/admin/reconciliation/drift"},
+		{http.MethodPost, "/v1/admin/reconciliation/run"},
+		{http.MethodPost, "/v1/admin/anchors"},
+		{http.MethodPut, "/v1/admin/fees/schedule"},
+	} {
+		t.Run(rt.method+" "+rt.path, func(t *testing.T) {
+			code := doRequestWithToken(t, srv, rt.method, rt.path, tok)
+			if code == http.StatusForbidden || code == http.StatusUnauthorized {
+				t.Fatalf("platform operator on %s %s: expected to pass authorization, got %d", rt.method, rt.path, code)
+			}
+		})
 	}
 }
 

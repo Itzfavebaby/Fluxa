@@ -13,6 +13,21 @@ type modeKey struct{}
 type scopesKey struct{}
 type apiKeyIDKey struct{}
 
+// platformTenantIDs are the tenant identities that represent the platform
+// operator rather than a customer tenant.
+var platformTenantIDs = map[string]struct{}{
+	"platform": {},
+	"system":   {},
+	"operator": {},
+}
+
+// IsPlatformTenant reports whether tenantID is one of the platform-operator
+// identities. Customer tenants must never satisfy it.
+func IsPlatformTenant(tenantID string) bool {
+	_, ok := platformTenantIDs[tenantID]
+	return ok
+}
+
 // WithID attaches a tenant ID to the context.
 func WithID(ctx context.Context, tenantID string) context.Context {
 	return context.WithValue(ctx, contextKey{}, tenantID)
