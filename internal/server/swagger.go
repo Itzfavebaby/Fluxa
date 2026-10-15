@@ -46,7 +46,7 @@ func ServeRoot(w http.ResponseWriter, _ *http.Request) {
 func ServeSwaggerUI(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(swaggerHTML))
+	_, _ = w.Write([]byte(swaggerHTML))
 }
 
 // ServeOpenAPISpec serves the OpenAPI specification file at /docs/openapi.yaml.
@@ -58,20 +58,12 @@ func ServeOpenAPISpec(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/yaml; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
-	w.Write(data)
+	_, _ = w.Write(data)
 }
 
-// Internal unexported aliases for backwards compatibility
+// serveSwaggerUI is the unexported name the docs tests call.
 func serveSwaggerUI(w http.ResponseWriter, r *http.Request) {
 	ServeSwaggerUI(w, r)
-}
-
-func serveOpenAPISpec(w http.ResponseWriter, r *http.Request) {
-	ServeOpenAPISpec(w, r)
-}
-
-func serveRoot(w http.ResponseWriter, r *http.Request) {
-	ServeRoot(w, r)
 }
 
 // findOpenAPISpec returns the OpenAPI document served at /docs/openapi.yaml.

@@ -109,6 +109,10 @@ tags:
   description: Tenant compliance exports
 - name: Idempotency
   description: Inspection and recovery of idempotent operations
+- name: Status
+  description: Public platform status, incidents and dependency history
+- name: Fiat
+  description: Payment links and refunds
 security:
 - BearerAuth: []
 paths:
@@ -421,6 +425,173 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '404':
           $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /v1/keys/{id}/expiry:
+    patch:
+      operationId: updateAPIKeyExpiry
+      summary: Update an API key's expiry and reminder window
+      description: Sets or clears a key's expiry and adjusts how far ahead its rotation reminder
+        fires. Omit `expires_at` to make the key non-expiring.
+      tags:
+      - Auth
+      parameters:
+      - $ref: '#/components/parameters/KeyID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                expires_at:
+                  type: string
+                  format: date-time
+                  nullable: true
+                  description: New expiry. Must be in the future; null or omitted clears the expiry.
+                rotation_reminder_days:
+                  type: integer
+                  minimum: 1
+                  maximum: 90
+                  description: Days before expiry at which the reminder fires.
+      responses:
+        '200':
+          description: Updated expiry policy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  expires_at:
+                    type: string
+                    format: date-time
+                    nullable: true
+                  rotation_reminder_days:
+                    type: integer
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/InsufficientScope'
+        '404':
+          description: API key not found or already revoked
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error:
+                  code: NOT_FOUND
+                  message: api key not found or already revoked
+                  status: 404
+                  request_id: req-example
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /v1/keys/{id}/rotate:
+    post:
+      operationId: rotateAPIKey
+      summary: Rotate an API key
+      description: Atomically revokes the given key and provisions a replacement with the
+        same role, scopes, label and mode. The replacement's raw value is returned
+        once, in this response only.
+      tags:
+      - Auth
+      parameters:
+      - $ref: '#/components/parameters/KeyID'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                expires_in_days:
+                  type: integer
+                  minimum: 1
+                  description: Lifetime of the replacement key. Omitted inherits the old
+                    key's lifespan.
+                rotation_reminder_days:
+                  type: integer
+                  minimum: 1
+                  maximum: 90
+      responses:
+        '201':
+          description: Replacement key created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  previous_key_id:
+                    type: string
+                  id:
+                    type: string
+                  key:
+                    type: string
+                    description: Raw replacement key. Returned once and never again.
+                  prefix:
+                    type: string
+                  mode:
+                    type: string
+                  label:
+                    type: string
+                  role:
+                    type: string
+                  scopes:
+                    type: array
+                    items:
+                      type: string
+                  expires_at:
+                    type: string
+                    format: date-time
+                    nullable: true
+                  rotation_reminder_days:
+                    type: integer
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/InsufficientScope'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /v1/data-export:
+    get:
+      operationId: exportTenantData
+      summary: Export tenant data
+      description: Builds a single JSON document of the authenticated tenant's data and
+        returns it as an attachment. Recorded in the audit log on every call.
+      tags:
+      - Auth
+      security:
+      - ApiKeyAuth: []
+      responses:
+        '200':
+          description: Tenant export as a downloadable JSON document
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TenantDataExport'
+          headers:
+            Content-Disposition:
+              description: Attachment filename for the export.
+              schema:
+                type: string
+                example: attachment; filename="fluxa-tenant-export.json"
+            Cache-Control:
+              description: Exports are always no-store; they contain tenant data.
+              schema:
+                type: string
+                example: no-store
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/InsufficientScope'
         '500':
           $ref: '#/components/responses/InternalServerError'
   /v1/wallets:
@@ -2696,6 +2867,720 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '500':
           $ref: '#/components/responses/InternalServerError'
+  /status:
+    get:
+      operationId: getPlatformStatus
+      summary: Get platform status
+      description: 'Public status rollup. Intentionally unauthenticated so an operator''s
+
+        status page can fetch it without an API key.
+
+        '
+      tags:
+      - Status
+      security: []
+      responses:
+        '200':
+          description: Platform status rollup
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusResponse'
+        '429':
+          description: Too many requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error:
+                  code: RATE_LIMITED
+                  message: too many requests
+                  status: 429
+                  request_id: req-example
+        '500':
+          description: Status query failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error:
+                  code: INTERNAL_ERROR
+                  message: status query failed
+                  status: 500
+                  request_id: req-example
+  /status/incidents:
+    get:
+      operationId: listIncidents
+      summary: List incidents
+      description: Public incident history, newest first. Unauthenticated for the same
+        reason as /status.
+      tags:
+      - Status
+      security: []
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 200
+          default: 50
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 0
+          default: 0
+      responses:
+        '200':
+          description: Incidents
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  incidents:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/StatusIncident'
+                  total:
+                    type: integer
+                  limit:
+                    type: integer
+                  offset:
+                    type: integer
+        '429':
+          description: Too many requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error:
+                  code: RATE_LIMITED
+                  message: too many requests
+                  status: 429
+                  request_id: req-example
+        '500':
+          description: Status query failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error:
+                  code: INTERNAL_ERROR
+                  message: status query failed
+                  status: 500
+                  request_id: req-example
+  /status/dependencies/history:
+    get:
+      operationId: listDependencyHistory
+      summary: List dependency health history
+      description: Time series of per-dependency probe results. Unauthenticated for the
+        same reason as /status.
+      tags:
+      - Status
+      security: []
+      parameters:
+      - name: dependency
+        in: query
+        required: false
+        description: Restrict the series to one dependency.
+        schema:
+          type: string
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 500
+          default: 100
+      responses:
+        '200':
+          description: Dependency health history
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  history:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/DependencyHealthSample'
+        '429':
+          description: Too many requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error:
+                  code: RATE_LIMITED
+                  message: too many requests
+                  status: 429
+                  request_id: req-example
+        '500':
+          description: Status query failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error:
+                  code: INTERNAL_ERROR
+                  message: status query failed
+                  status: 500
+                  request_id: req-example
+  /v1/transfer-approvals:
+    get:
+      operationId: listTransferApprovals
+      summary: List transfer approval requests
+      description: Lists approval requests for the authenticated tenant, optionally filtered
+        by status.
+      tags:
+      - Transfers
+      security:
+      - ApiKeyAuth: []
+      parameters:
+      - name: status
+        in: query
+        required: false
+        schema:
+          type: string
+          enum:
+          - pending
+          - approved
+          - rejected
+          - expired
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 200
+          default: 50
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 0
+          default: 0
+      responses:
+        '200':
+          description: Approval requests
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/TransferApprovalRequest'
+                  total:
+                    type: integer
+                  limit:
+                    type: integer
+                  offset:
+                    type: integer
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/InsufficientScope'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /v1/transfer-approvals/{id}/approve:
+    post:
+      operationId: approveTransferApproval
+      summary: Approve a transfer approval request
+      description: Records an approval vote. Once the request reaches its required approval
+        count the held transfer is released.
+      tags:
+      - Transfers
+      security:
+      - ApiKeyAuth: []
+      parameters:
+      - $ref: '#/components/parameters/TransferApprovalID'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                note:
+                  type: string
+                  maxLength: 1000
+      responses:
+        '200':
+          description: Updated approval request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransferApprovalRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/InsufficientScope'
+        '404':
+          description: Approval request not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error:
+                  code: NOT_FOUND
+                  message: approval request not found
+                  status: 404
+                  request_id: req-example
+        '409':
+          description: The request was already decided
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error:
+                  code: REVIEW_ALREADY_DECIDED
+                  message: approval request has already been decided
+                  status: 409
+                  request_id: req-example
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /v1/transfer-approvals/{id}/reject:
+    post:
+      operationId: rejectTransferApproval
+      summary: Reject a transfer approval request
+      description: Records a rejection vote. A rejection is terminal — the held transfer
+        is stopped.
+      tags:
+      - Transfers
+      security:
+      - ApiKeyAuth: []
+      parameters:
+      - $ref: '#/components/parameters/TransferApprovalID'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                note:
+                  type: string
+                  maxLength: 1000
+      responses:
+        '200':
+          description: Updated approval request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransferApprovalRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/InsufficientScope'
+        '404':
+          description: Approval request not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error:
+                  code: NOT_FOUND
+                  message: approval request not found
+                  status: 404
+                  request_id: req-example
+        '409':
+          description: The request was already decided
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error:
+                  code: REVIEW_ALREADY_DECIDED
+                  message: approval request has already been decided
+                  status: 409
+                  request_id: req-example
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /v1/approval-policies:
+    get:
+      operationId: getApprovalPolicy
+      summary: Get the transfer approval policy
+      description: Returns the approval policy for one asset. With no `asset` query parameter
+        the default policy is returned.
+      tags:
+      - Transfers
+      security:
+      - ApiKeyAuth: []
+      parameters:
+      - name: asset
+        in: query
+        required: false
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Approval policy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransferApprovalPolicy'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/InsufficientScope'
+        '404':
+          description: No policy configured for that asset
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error:
+                  code: NOT_FOUND
+                  message: no policy configured for that asset
+                  status: 404
+                  request_id: req-example
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    put:
+      operationId: putApprovalPolicy
+      summary: Create or replace the transfer approval policy
+      description: Sets the approval policy for one asset. Transfers above the threshold
+        then require the configured number of approvals before they settle.
+      tags:
+      - Transfers
+      security:
+      - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - asset
+              - threshold
+              - required_approvals
+              - expires_after_seconds
+              - enabled
+              properties:
+                asset:
+                  type: string
+                threshold:
+                  type: string
+                  description: Decimal amount at or above which approvals are required.
+                required_approvals:
+                  type: integer
+                  minimum: 1
+                expires_after_seconds:
+                  type: integer
+                  description: How long an approval request stays open before it expires.
+                  minimum: 60
+                enabled:
+                  type: boolean
+      responses:
+        '200':
+          description: Stored approval policy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransferApprovalPolicy'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/InsufficientScope'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /v1/payment-links:
+    get:
+      operationId: listPaymentLinks
+      summary: List payment links
+      description: Lists payment links for the authenticated tenant, newest first.
+      tags:
+      - Fiat
+      security:
+      - ApiKeyAuth: []
+      responses:
+        '200':
+          description: Payment links
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentLinksResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/InsufficientScope'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    post:
+      operationId: createPaymentLink
+      summary: Create a payment link
+      description: Creates a shareable link that collects a fixed amount in one currency.
+        The response carries `checkout_url`, the path a payer visits.
+      tags:
+      - Fiat
+      security:
+      - ApiKeyAuth: []
+      parameters:
+      - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatePaymentLinkRequest'
+      responses:
+        '201':
+          description: Payment link created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentLink'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/InsufficientScope'
+        '404':
+          description: Wallet not found for this tenant and environment
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error:
+                  code: NOT_FOUND
+                  message: wallet not found for this tenant and environment
+                  status: 404
+                  request_id: req-example
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /v1/payment-links/{id}:
+    get:
+      operationId: getPaymentLink
+      summary: Get a payment link
+      tags:
+      - Fiat
+      security:
+      - ApiKeyAuth: []
+      parameters:
+      - $ref: '#/components/parameters/PaymentLinkID'
+      responses:
+        '200':
+          description: Payment link
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentLink'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/InsufficientScope'
+        '404':
+          description: Payment link not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error:
+                  code: NOT_FOUND
+                  message: payment link not found
+                  status: 404
+                  request_id: req-example
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    delete:
+      operationId: cancelPaymentLink
+      summary: Cancel a payment link
+      description: Cancels the link so it can no longer be used to pay. Returns 204 with
+        no body.
+      tags:
+      - Fiat
+      security:
+      - ApiKeyAuth: []
+      parameters:
+      - $ref: '#/components/parameters/PaymentLinkID'
+      responses:
+        '204':
+          description: Payment link cancelled
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/InsufficientScope'
+        '404':
+          description: Payment link not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error:
+                  code: NOT_FOUND
+                  message: payment link not found
+                  status: 404
+                  request_id: req-example
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /v1/public/payment-links/{token}:
+    get:
+      operationId: getPublicPaymentLink
+      summary: Get a payment link by its public token
+      description: Unauthenticated view of a payment link, keyed by the public token rather
+        than the internal ID. Only the fields a payer needs are returned — the
+        wallet ID and internal identifiers are withheld.
+      tags:
+      - Fiat
+      security: []
+      parameters:
+      - name: token
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Public payment link details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicPaymentLink'
+        '404':
+          description: Payment link not found or no longer payable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error:
+                  code: NOT_FOUND
+                  message: payment link not found or no longer payable
+                  status: 404
+                  request_id: req-example
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /v1/refunds:
+    get:
+      operationId: listRefunds
+      summary: List refunds
+      description: Lists refunds recorded against one original transaction.
+      tags:
+      - Transfers
+      security:
+      - ApiKeyAuth: []
+      parameters:
+      - name: original_transaction_id
+        in: query
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Refunds for the original transaction
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RefundsResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/InsufficientScope'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    post:
+      operationId: createRefund
+      summary: Create a refund
+      description: Refunds part or all of a settled transaction. Returns 202 — the refund
+        is queued and its status advances asynchronously.
+      tags:
+      - Transfers
+      security:
+      - ApiKeyAuth: []
+      parameters:
+      - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateRefundRequest'
+      responses:
+        '202':
+          description: Refund accepted and queued
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Refund'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/InsufficientScope'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /v1/refunds/{id}:
+    get:
+      operationId: getRefund
+      summary: Get a refund
+      tags:
+      - Transfers
+      security:
+      - ApiKeyAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Refund
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Refund'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/InsufficientScope'
+        '404':
+          description: Refund not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error:
+                  code: NOT_FOUND
+                  message: refund not found
+                  status: 404
+                  request_id: req-example
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
 components:
   securitySchemes:
     BearerAuth:
@@ -2734,6 +3619,36 @@ components:
       schema:
         type: string
       description: API key ID
+    PaymentLinkID:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+      description: Payment link ID
+    TransferApprovalID:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+      description: Transfer approval request ID
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: 'Client-generated UUID v4 that makes this request safe to retry.
+
+        The result is held for 24 hours: a repeat with the same body
+
+        replays the original response, a repeat with a different body
+
+        returns 409.
+
+        '
+      schema:
+        type: string
+        format: uuid
     ScheduleID:
       name: id
       in: path
@@ -4450,3 +5365,276 @@ components:
           type: integer
           description: Total size in bytes of the original response body
           example: 48
+    PaymentLink:
+      type: object
+      description: A shareable link that collects a fixed amount in one currency.
+      properties:
+        id:
+          type: string
+        token:
+          type: string
+          description: Public token used in the payer-facing URL.
+        wallet_id:
+          type: string
+          description: Wallet that receives the payment.
+        amount:
+          type: string
+          description: Decimal amount with 4 decimal places.
+        currency:
+          type: string
+        status:
+          type: string
+          enum:
+          - pending
+          - paid
+          - cancelled
+          - expired
+        checkout_url:
+          type: string
+          description: Payer-facing path. Withheld on the public view.
+          example: /pay/plk_abc123
+        expires_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+    PublicPaymentLink:
+      type: object
+      description: 'The payer-facing view of a payment link: only what a payer needs. The
+        wallet ID, internal ID and creation time are deliberately omitted.'
+      properties:
+        amount:
+          type: string
+        currency:
+          type: string
+        status:
+          type: string
+          enum:
+          - pending
+          - paid
+          - cancelled
+          - expired
+        expires_at:
+          type: string
+          format: date-time
+    Refund:
+      type: object
+      properties:
+        id:
+          type: string
+        original_transaction_id:
+          type: string
+        transaction_id:
+          type: string
+          description: Transaction that moved the refunded funds back to the payer. Set once
+            the refund settles.
+        amount:
+          type: string
+          description: Decimal amount with 7 decimal places.
+        reason:
+          type: string
+        status:
+          type: string
+          enum:
+          - pending
+          - processing
+          - completed
+          - failed
+    TransferApprovalRequest:
+      type: object
+      properties:
+        id:
+          type: string
+        tenant_id:
+          type: string
+        transaction_id:
+          type: string
+        creator_id:
+          type: string
+          description: API key or user that initiated the transfer.
+        asset:
+          type: string
+        amount:
+          type: string
+        required_approvals:
+          type: integer
+        approval_count:
+          type: integer
+          description: Approvals recorded so far. The transfer is released once this reaches
+            required_approvals.
+        status:
+          type: string
+          enum:
+          - pending
+          - approved
+          - rejected
+          - expired
+        expires_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        decided_at:
+          type: string
+          format: date-time
+        votes:
+          type: array
+          items:
+            $ref: '#/components/schemas/TransferApprovalVote'
+    TransferApprovalVote:
+      type: object
+      properties:
+        id:
+          type: string
+        approver_id:
+          type: string
+        decision:
+          type: string
+          enum:
+          - approved
+          - rejected
+        note:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+    TransferApprovalPolicy:
+      type: object
+      properties:
+        tenant_id:
+          type: string
+        asset:
+          type: string
+        threshold:
+          type: string
+          description: Transfers at or above this amount require approvals.
+        required_approvals:
+          type: integer
+        expires_after_seconds:
+          type: integer
+          description: How long an approval request stays open before it expires.
+        enabled:
+          type: boolean
+        updated_at:
+          type: string
+          format: date-time
+    StatusResponse:
+      type: object
+      description: Public platform status rollup.
+      properties:
+        status:
+          type: string
+          enum:
+          - operational
+          - degraded
+          - down
+        dependencies:
+          type: object
+          additionalProperties:
+            type: string
+            enum:
+            - up
+            - down
+        updated_at:
+          type: string
+          format: date-time
+    StatusIncident:
+      type: object
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+        severity:
+          type: string
+          enum:
+          - minor
+          - major
+          - critical
+        status:
+          type: string
+          enum:
+          - investigating
+          - identified
+          - monitoring
+          - resolved
+        started_at:
+          type: string
+          format: date-time
+        resolved_at:
+          type: string
+          format: date-time
+          nullable: true
+    DependencyHealthSample:
+      type: object
+      properties:
+        dependency:
+          type: string
+        status:
+          type: string
+          enum:
+          - up
+          - down
+        latency_ms:
+          type: integer
+        checked_at:
+          type: string
+          format: date-time
+    TenantDataExport:
+      type: object
+      description: Single JSON document of everything the authenticated tenant owns.
+      additionalProperties: true
+    CreatePaymentLinkRequest:
+      type: object
+      description: Request body for creating a payment link.
+      required:
+      - wallet_id
+      - amount
+      - currency
+      - expires_at
+      properties:
+        wallet_id:
+          type: string
+          description: Wallet that receives the payment.
+        amount:
+          type: string
+          description: Positive decimal amount.
+        currency:
+          type: string
+        expires_at:
+          type: string
+          format: date-time
+          description: RFC3339 timestamp after which the link stops accepting payment.
+    PaymentLinksResponse:
+      type: object
+      properties:
+        payment_links:
+          type: array
+          items:
+            $ref: '#/components/schemas/PaymentLink'
+    CreateRefundRequest:
+      type: object
+      description: Request body for creating a refund.
+      required:
+      - original_transaction_id
+      - amount
+      properties:
+        original_transaction_id:
+          type: string
+        amount:
+          type: string
+          description: Positive decimal amount with at most 7 decimal places.
+        reason:
+          type: string
+          maxLength: 500
+    RefundsResponse:
+      type: object
+      properties:
+        refunds:
+          type: array
+          items:
+            $ref: '#/components/schemas/Refund'

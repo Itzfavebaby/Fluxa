@@ -113,12 +113,16 @@ func TestHealth_AllDownReturns503(t *testing.T) {
 // background ticker re-runs the dependency checks.
 func TestHealth_MonitorCachesAndRefreshesInBackground(t *testing.T) {
 	var calls atomic.Int64
+	// The cache TTL equals this interval, and Handler refreshes once it
+	// expires. The burst below has to finish inside that window or a request
+	// (or the background ticker) legitimately runs the check again. 20ms is
+	// shorter than 20 requests under -race, which is what made this fail in CI.
 	monitor := NewHealthMonitor(map[string]DependencyCheck{
 		"database": func(context.Context) error {
 			calls.Add(1)
 			return nil
 		},
-	}, 20*time.Millisecond)
+	}, time.Second)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -139,7 +143,7 @@ func TestHealth_MonitorCachesAndRefreshesInBackground(t *testing.T) {
 	}
 
 	// The background loop must eventually refresh on its own.
-	deadline := time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
 		if calls.Load() > 1 {
 			return

@@ -44,7 +44,7 @@ func TestDriftHandler_ReturnsCurrentSnapshots(t *testing.T) {
 
 	// Seed the drift store the way a reconciliation pass would. GetDrift reads
 	// the repository first and only falls back to the in-memory map.
-	repo.WriteDriftSnapshot(context.Background(), &DriftSnapshot{
+	if err := repo.WriteDriftSnapshot(context.Background(), &DriftSnapshot{
 		ID:              "snap-1",
 		TenantID:        "tenant-1",
 		WalletID:        "wallet-1",
@@ -54,7 +54,9 @@ func TestDriftHandler_ReturnsCurrentSnapshots(t *testing.T) {
 		ActualBalance:   decimal.RequireFromString("90"),
 		DriftAmount:     decimal.RequireFromString("10"),
 		Threshold:       decimal.RequireFromString("1"),
-	})
+	}); err != nil {
+		t.Fatal(err)
+	}
 
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/v1/admin/reconciliation/drift", nil))
@@ -121,11 +123,13 @@ func TestDriftHandler_ReturnsSnapshotCopy(t *testing.T) {
 	svc, _ := newDriftTestService(t, decimal.RequireFromString("1"))
 
 	repo := svc.driftRepo.(*driftRepo)
-	repo.WriteDriftSnapshot(context.Background(), &DriftSnapshot{
+	if err := repo.WriteDriftSnapshot(context.Background(), &DriftSnapshot{
 		TenantID:    "tenant-1",
 		Asset:       "XLM",
 		DriftAmount: decimal.RequireFromString("5"),
-	})
+	}); err != nil {
+		t.Fatal(err)
+	}
 
 	snapshots, err := svc.GetDrift(context.Background())
 	if err != nil {

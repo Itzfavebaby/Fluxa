@@ -68,6 +68,42 @@ def python_type(schema: dict) -> str:
     }.get(kind, "Any")
 
 
+_GO_SCALARS = {
+    "string": "string",
+    "integer": "int64",
+    "number": "float64",
+    "boolean": "bool",
+}
+
+_PY_SCALARS = {
+    "string": "str",
+    "integer": "int",
+    "number": "float",
+    "boolean": "bool",
+}
+
+
+def scalar_alias(schema: dict) -> tuple[str | None, str]:
+    """Return the (Go, Python) alias for a schema that is not a struct.
+
+    Covers the two shapes that carry no properties: a bare scalar such as a
+    string enum, and a free-form object declared with additionalProperties.
+    Returns (None, "") when the schema should still be emitted as a struct.
+    """
+    kind = schema.get("type")
+    if kind in _GO_SCALARS:
+        return _GO_SCALARS[kind], _PY_SCALARS[kind]
+    if kind == "object":
+        value = schema.get("additionalProperties")
+        if isinstance(value, dict):
+            return f"map[string]{go_type(value)}", f"dict[str, {python_type(value)}]"
+        return "map[string]any", "dict[str, Any]"
+    if kind == "array":
+        items = schema.get("items", {})
+        return f"[]{go_type(items)}", f"list[{python_type(items)}]"
+    return "map[string]any", "dict[str, Any]"
+
+
 def properties(schema: dict) -> dict:
     result = dict(schema.get("properties", {}))
     for part in schema.get("allOf", []):
@@ -108,6 +144,21 @@ def generate(spec: dict) -> tuple[str, str]:
         base = base_types(schema)
         fields = properties(schema)
         required = required_properties(schema)
+
+        # A schema with no properties and no allOf base is not a struct. Emitting
+        # `type X struct { map[string]any }` is invalid Go — only named types can
+        # be embedded — and gofmt rejects it, so the generator fails outright
+        # rather than producing a usable model. Map the schema to the Go or
+        # Python type it actually describes instead.
+        if not base and not fields:
+            go_alias, py_alias = scalar_alias(schema)
+            if go_alias is not None:
+                go_lines.append(f"type {pascal(name)} {go_alias}")
+                go_lines.append("")
+                py_lines.append(f"{pascal(name)} = {py_alias}")
+                py_lines.append("")
+                continue
+
         go_lines.append(f"type {pascal(name)} struct {{")
         for parent in base:
             go_lines.append(f"\t{pascal(parent)}")
@@ -118,8 +169,6 @@ def generate(spec: dict) -> tuple[str, str]:
                 typ = "*" + typ
             tag = f'json:"{key}' + (",omitempty" if optional else "") + '"'
             go_lines.append(f"\t{pascal(key)} {typ} `{tag}`")
-        if not base and not fields:
-            go_lines.append("\tmap[string]any")
         go_lines.extend(["}", ""])
 
         py_base = ", ".join(pascal(parent) for parent in base) or "TypedDict"
