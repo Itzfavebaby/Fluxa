@@ -18,10 +18,14 @@ import (
 
 type testRepo struct {
 	records map[string]idempotency.Record
+	// clock must match the handler's injected clock. Checking expiry against
+	// real time.Now() made every record look expired once the tests' fixed
+	// "now" fell into the past.
+	clock func() time.Time
 }
 
 func newTestRepo() *testRepo {
-	return &testRepo{records: make(map[string]idempotency.Record)}
+	return &testRepo{records: make(map[string]idempotency.Record), clock: time.Now}
 }
 
 func (r *testRepo) Acquire(_ context.Context, _ string, _ domain.Mode, _, _ string, _, _, _ time.Time, _ bool) (idempotency.Acquisition, error) {
@@ -42,14 +46,18 @@ func (r *testRepo) Lookup(_ context.Context, orgID string, mode domain.Mode, key
 	if !ok {
 		return idempotency.LookupResult{Found: false}, nil
 	}
-	if !rec.ExpiresAt.IsZero() && time.Now().After(rec.ExpiresAt) {
+	if !rec.ExpiresAt.IsZero() && r.clock().After(rec.ExpiresAt) {
 		return idempotency.LookupResult{Found: false}, nil
 	}
 	return idempotency.LookupResult{Found: true, Record: rec}, nil
 }
 
 func setupTestRouter(repo idempotency.Repository, now time.Time) *chi.Mux {
-	h := idempotency.NewHandler(repo).WithClock(func() time.Time { return now })
+	clock := func() time.Time { return now }
+	if r, ok := repo.(*testRepo); ok {
+		r.clock = clock
+	}
+	h := idempotency.NewHandler(repo).WithClock(clock)
 	r := chi.NewRouter()
 	r.Route("/v1/idempotency", h.Routes())
 	return r

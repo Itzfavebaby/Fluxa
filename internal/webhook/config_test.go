@@ -789,8 +789,13 @@ func TestDispatchToTenants_SendsSignedPayloadAndRecordsSuccess(t *testing.T) {
 	if gotKeyID != deliveries[0].SigningKeyID {
 		t.Fatalf("key ID header = %q, want pinned delivery key %q", gotKeyID, deliveries[0].SigningKeyID)
 	}
-	if gotTimestamp == "" {
-		t.Fatal("timestamp header is empty")
+	// Tenant-config deliveries sign the raw body directly and carry no
+	// timestamp header; that scheme is documented in
+	// docs/webhook-verification/README.md and differs from the timestamped
+	// endpoint-scoped scheme on purpose. Asserting the absence keeps a stray
+	// timestamp from silently changing the contract customers verify against.
+	if gotTimestamp != "" {
+		t.Fatalf("timestamp header = %q, want none for tenant-config deliveries", gotTimestamp)
 	}
 	if gotEvent != string(domain.EventTransferSettled) {
 		t.Fatalf("event header = %q", gotEvent)

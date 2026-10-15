@@ -690,7 +690,11 @@ func TestRunOne_ExpectedRunAt_IsStoredCorrectly(t *testing.T) {
 	repo := newFakeRunRepo()
 	transferSvc := newIdempTransferSvc()
 
-	dueAt := time.Date(2026, 1, 15, 8, 0, 0, 0, time.UTC)
+	// The occurrence must fall within one interval of "now": further in the
+	// past and runOne deliberately catches up to the most recent occurrence
+	// before claiming, so the run would be recorded against a later
+	// expected_run_at than this schedule's original NextRunAt.
+	dueAt := time.Now().UTC().Add(-30 * time.Second)
 	sch := makeActiveSchedule("sched-ea", dueAt)
 	repo.schedules[sch.ID] = sch
 

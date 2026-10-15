@@ -84,7 +84,7 @@ func IsRetryableTransport(err error) bool {
 		return true
 	}
 	var netErr net.Error
-	return errors.As(err, &netErr) && (netErr.Timeout() || netErr.Temporary())
+	return errors.As(err, &netErr) && netErr.Timeout()
 }
 
 func ClassifySubmitError(err error) SubmitClass {

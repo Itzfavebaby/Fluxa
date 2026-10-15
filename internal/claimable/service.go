@@ -254,13 +254,6 @@ func (s *service) Create(ctx context.Context, in CreateInput) (*CreateResult, er
 		expiresAt = EarliestDeadline(in.Claimants)
 	}
 
-	tID := tenant.IDFromContext(ctx)
-	if tID == "" {
-		if sponsorWallet != nil {
-			// If needed, fallback or ensure org_id is populated
-		}
-	}
-
 	record := &domain.ClaimableBalance{
 		ID:             balanceID,
 		TenantID:       tenantPtr(ctx),
@@ -477,7 +470,7 @@ func (s *service) revoke(ctx context.Context, balance *domain.ClaimableBalance, 
 }
 
 // submitClaim builds, signs and submits a ClaimClaimableBalance from wallet.
-func (s *service) submitClaim(ctx context.Context, balanceID string, wallet *SourceWallet) (string, error) {
+func (s *service) submitClaim(_ context.Context, balanceID string, wallet *SourceWallet) (string, error) {
 	account, err := s.stellar.LoadAccount(wallet.PublicKey)
 	if err != nil {
 		return "", fmt.Errorf("load claimant account: %w", err)

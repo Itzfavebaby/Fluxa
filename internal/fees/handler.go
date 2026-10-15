@@ -212,12 +212,18 @@ func (h *Handler) listCollected(w http.ResponseWriter, r *http.Request) {
 
 	limit := 100
 	if l := r.URL.Query().Get("limit"); l != "" {
-		fmt.Sscanf(l, "%d", &limit)
+		if _, err := fmt.Sscanf(l, "%d", &limit); err != nil {
+			api.BadRequest(w, "limit must be an integer")
+			return
+		}
 	}
 
 	offset := 0
 	if o := r.URL.Query().Get("offset"); o != "" {
-		fmt.Sscanf(o, "%d", &offset)
+		if _, err := fmt.Sscanf(o, "%d", &offset); err != nil {
+			api.BadRequest(w, "offset must be an integer")
+			return
+		}
 	}
 
 	collections, err := h.svc.ListCollected(r.Context(), start, end, tenantID, limit, offset)

@@ -9,9 +9,15 @@ CREATE TABLE IF NOT EXISTS wallet_balance_alerts (
     threshold DECIMAL(38, 18) NOT NULL,
     status VARCHAR(20) NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'inactive')),
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    UNIQUE (tenant_id, mode, wallet_id, asset_code, COALESCE(asset_issuer, ''))
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
+
+-- A NULL asset_issuer must not defeat uniqueness, so alerts for an asset with
+-- no issuer still collide with each other. That needs an expression, and
+-- PostgreSQL only accepts column names in a table-level UNIQUE constraint, so
+-- it has to be a unique index instead.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_wallet_balance_alerts_natural_key
+    ON wallet_balance_alerts (tenant_id, mode, wallet_id, asset_code, COALESCE(asset_issuer, ''));
 
 CREATE INDEX idx_wallet_balance_alerts_tenant ON wallet_balance_alerts(tenant_id);
 CREATE INDEX idx_wallet_balance_alerts_wallet ON wallet_balance_alerts(wallet_id);

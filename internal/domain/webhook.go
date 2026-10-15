@@ -28,32 +28,9 @@ const (
 	EventAPIKeyExpired          = "api_key.expired"
 )
 
-var SupportedEventTypes = []string{
-	EventTransferSettled,
-	EventTransferFailed,
-	EventWalletFunded,
-	EventTreasurySweepCompleted,
-	EventReconciliationDrift,
-	EventTransferComplianceHold,
-	EventTransferComplianceApproved,
-	EventTransferComplianceRejected,
-	EventSanctionsRefreshFailed,
-	EventClaimableBalanceCreated,
-	EventClaimableBalanceClaimed,
-	EventClaimableBalanceExpired,
-	EventClaimableBalanceRevoked,
-	EventAPIKeyRotationReminder,
-	EventAPIKeyExpired,
-}
-
-func IsSupportedEventType(eventType string) bool {
-	for _, supported := range SupportedEventTypes {
-		if eventType == supported {
-			return true
-		}
-	}
-	return false
-}
+// SupportedEventTypes, IsSupportedEventType, and the descriptive metadata for
+// each event live in webhook_events.go, which owns the event contract as a
+// single table rather than restating it here.
 
 type WebhookEndpoint struct {
 	ID              string     `json:"id"`

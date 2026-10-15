@@ -121,18 +121,17 @@ func (s *service) Update(ctx context.Context, id string, in UpdateInput) (*domai
 	if in.Status != nil {
 		sch.Status = *in.Status
 		if *in.Status == domain.ScheduleStatusActive {
-			now := time.Now().UTC()
+			// A pause can leave next_run_at in the past, which would make the
+			// schedule permanently due and fire on every worker tick.
+			//
+			// Only the "skip" policy advances the cursor here. The other
+			// policies deliberately leave it where it is so that runOne can
+			// still see the elapsed occurrences and apply their policy at claim
+			// time; advancing it here would silently drop them.
 			if sch.MissedRunPolicy == domain.MissedRunPolicySkip {
+				now := time.Now().UTC()
 				for !sch.NextRunAt.After(now) {
 					sch.NextRunAt = AddInterval(sch.NextRunAt, sch.Frequency, sch.Timezone)
-				}
-			} else {
-				for {
-					next := AddInterval(sch.NextRunAt, sch.Frequency, sch.Timezone)
-					if next.After(now) {
-						break
-					}
-					sch.NextRunAt = next
 				}
 			}
 		}
