@@ -4600,6 +4600,9 @@ components:
       properties:
         id:
           type: string
+        batch_id:
+          type: string
+          description: Same as id — provided so callers can key on batch_id directly
         status:
           type: string
           enum:
@@ -4620,6 +4623,15 @@ components:
         created_at:
           type: string
           format: date-time
+        settled_at:
+          type: string
+          format: date-time
+          description: Present once the batch reached a terminal status
+        transfer_ids:
+          type: array
+          description: IDs of the individual transfers in submission order
+          items:
+            type: string
         transfers:
           type: array
           items:
@@ -4985,6 +4997,8 @@ components:
             - transfer.failed
             - wallet.funded
             - conversion.completed
+            - batch.completed
+            - batch.partially_failed
           description: 'Event types to subscribe to. Omit or pass an empty array to
 
             receive all events.
@@ -5044,6 +5058,8 @@ components:
           - transfer.failed
           - wallet.funded
           - conversion.completed
+          - batch.completed
+          - batch.partially_failed
         status:
           type: string
           enum:
